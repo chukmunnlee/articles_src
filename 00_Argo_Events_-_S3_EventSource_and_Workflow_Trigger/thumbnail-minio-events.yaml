@@ -1,0 +1,203 @@
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: minio-keys-secret
+  namespace: playground
+type: Opaque
+data:
+  accessKey: __MINIO_ACCESS_KEY__
+  secretKey: __MINIO_SECRET_KEY__
+
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: artifact-repositories
+  namespace: playground
+  annotations:
+    workflows.argoproj.io/default-artifact-repository: minio
+data:
+  minio: |
+    archiveLogs: false
+    s3:
+      bucket: acme
+      endpoint: minio-svc.playground.svc.cluster.local:9000
+      accessKeySecret:
+        name: minio-keys-secret
+        key: accessKey
+      secretKeySecret:
+        name: minio-keys-secret
+        key: secretKey
+      insecure: true
+
+---
+apiVersion: argoproj.io/v1alpha1
+kind: EventSource
+metadata:
+  name: minio-es
+  namespace: playground
+spec:
+  eventBusName: kafka-eb
+  template:
+    metadata:
+      labels: 
+        name: minio-es-po
+    serviceAccountName: playground-sa
+  minio:
+    thumbnail:
+      bucket: 
+        name: acme
+      endpoint: minio-svc.playground.svc.cluster.local:9000
+      events:
+      - s3:ObjectCreated:Put
+      - s3:ObjectCreated:Post
+      insecure: true
+      filter:
+        prefix: "thumbnails/"
+      accessKey:
+        name: minio-keys-secret
+        key: accessKey
+      secretKey:
+        name: minio-keys-secret
+        key: secretKey
+
+---
+apiVersion: argoproj.io/v1alpha1
+kind: Sensor
+metadata:
+  name: minio-sn
+  namespace: playground
+spec:
+  eventBusName: kafka-eb
+  template:
+    metadata:
+      labels: 
+        name: minio-sn-po
+    serviceAccountName: playground-sa
+  dependencies:
+  - name: payload
+    eventSourceName: minio-es
+    eventName: thumbnail
+    filters: 
+      exprs:
+      - expr: count > 0
+        fields:
+        - name: count
+          path: notification.#(s3.object.contentType%"image/*")#|#
+
+    transform: 
+      script: |-
+
+        local to_thumbnail = {}
+
+        for i, v in ipairs(event["notification"]) do
+
+          local j = v["s3"]["object"]["key"]
+          local content_type = v["s3"]["object"]["contentType"]
+
+          if content_type:find("^image/") ~= nil then
+
+            local img = {}
+            local dir = string.match(j, "/[^/]*$")
+
+            img["directory"] = string.sub(j, 1, #j - #dir)
+            img["imageName"] = string.sub(j, #j - #dir + 2, #j)
+            img["dimensions"] = "128x128 256x256 512x152 1024x1024"
+
+            table.insert(to_thumbnail, img)
+          end
+        end
+
+        event["images"] = to_thumbnail
+
+        return event
+
+  triggers:
+  - template: 
+      name: thumbnail
+      argoWorkflow:
+        operation: submit
+        parameters:
+        - src:
+            dependencyName: payload
+            dataKey: images
+          dest: spec.arguments.parameters.0.value
+        source:
+          resource:
+            apiVersion: argoproj.io/v1alpha1
+            kind: Workflow
+            metadata:
+              generateName: script-resize-wf-
+            spec:
+              serviceAccountName: playground-sa
+              artifactRepositoryRef:
+                key: minio
+              arguments:
+                parameters:
+                - name: images
+                  value: []
+              entrypoint: main
+
+              templates:
+              - name: main
+                inputs:
+                  parameters:
+                  - name: images
+                steps:
+                - - name: resize-image
+                    arguments:
+                      parameters:
+                      - name: directory
+                        value: "{{ item.directory }}"
+                      - name: imageName
+                        value: "{{ item.imageName }}"
+                      - name: dimensions
+                        value: "{{ item.dimensions }}"
+                    template: thumbnail
+                    withParam: "{{ inputs.parameters.images }}"
+
+              - name: thumbnail
+                inputs:
+                  parameters:
+                  - name: directory
+                  - name: imageName
+                  - name: dimensions
+                  artifacts:
+                  - name: image-src
+                    path: /mnt
+                    s3:
+                      key: "{{ inputs.parameters.directory }}"
+                outputs:
+                  artifacts:
+                  - name: storage
+                    path: /mnt/resized
+                    archive:
+                      none: {}
+                    s3:
+                      bucket: foobar
+                      endpoint: minio-svc.playground.svc.cluster.local:9000
+                      key: "resized"
+                      accessKeySecret:
+                        name: minio-keys-secret
+                        key: accessKey
+                      secretKeySecret:
+                        name: minio-keys-secret
+                        key: secretKey
+                      insecure: true
+                script:
+                  image: vulhub/imagemagick:7.1.0-49
+                  imagePullPolicy: IfNotPresent
+                  workingDir: /mnt
+                  command: [ "/bin/bash" ]
+                  source: |
+                    mkdir -p resized
+                    set "{{ inputs.parameters.dimensions }}"
+                    for IMG_DIM in $*; do 
+                      convert "{{ inputs.parameters.imageName }}" -resize $IMG_DIM "resized/${IMG_DIM}-{{ inputs.parameters.imageName }}" 
+                    done
+
+  - template: 
+      name: logging
+      log: 
+        intervalSeconds: 15
