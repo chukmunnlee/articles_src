@@ -1,0 +1,51 @@
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: fortune-deploy
+  namespace: playground
+  labels:
+    app: fortune
+    name: fortune-deploy
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: fortune
+      name: fortune-po
+  template:
+    metadata:
+      name: fortune-po
+      labels:
+        app: fortune
+        name: fortune-po
+    spec:
+      containers:
+      - name: fortune-container
+        image: chukmunnlee/fortune:v2
+        imagePullPolicy: IfNotPresent
+        ports:
+        - containerPort: 3000
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: fortune-svc
+  namespace: playground
+  labels:
+    app: fortune
+    name: fortune-svc
+  annotations:
+    autodeploy-ingress-host: fortune-192.168.39.169.nip.io
+    autodeploy-ingress-class: nginx
+    autodeploy-gateway-host: fortune.playground.192.168.39.120.nip.io
+spec:
+  type: ClusterIP
+  selector:
+    app: fortune
+    name: fortune-po
+  ports:
+  - port: 3000
+    targetPort: 3000
+

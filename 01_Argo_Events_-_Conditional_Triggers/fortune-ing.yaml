@@ -1,0 +1,21 @@
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: fortune-ing
+  namespace: playground
+  labels:
+    app: fortune
+    name: fortune-ing
+spec:
+  rules:
+  - host: fortune-192.168.39.169.nip.io
+    http:
+      paths:
+      - path: /
+        pathType: Prefix
+        backend:
+          service:
+            name: fortune-svc
+            port:
+              number: 3000

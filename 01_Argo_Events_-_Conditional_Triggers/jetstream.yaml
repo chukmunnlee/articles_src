@@ -1,0 +1,13 @@
+---
+apiVersion: argoproj.io/v1alpha1
+kind: EventBus
+metadata:
+  name: jetstream-eb
+  namespace: playground
+spec:
+  jetstream:
+    version: latest
+    replicas: 3
+    streamConfig: |
+      maxAge: 5m
+      replicas: 2

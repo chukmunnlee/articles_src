@@ -1,0 +1,188 @@
+---
+apiVersion: argoproj.io/v1alpha1
+kind: EventSource
+metadata:
+  name: ingress-es
+  namespace: playground
+spec:
+  eventBusName: jetstream-eb
+  template:
+    serviceAccountName: playground-sa
+  resource:
+    ingress:
+      namespace: playground
+      group: ""
+      version: v1
+      resource: services
+      eventTypes: [ ADD, DELETE, UPDATE ]
+      filter:
+        fields:
+        - key: metadata.annotations.autodeploy-ingress-host
+          operation: =
+          value: ".+"
+
+---
+apiVersion: argoproj.io/v1alpha1
+kind: EventSource
+metadata:
+  name: gateway-es
+  namespace: playground
+spec:
+  eventBusName: jetstream-eb
+  template:
+    serviceAccountName: playground-sa
+  resource:
+    gateway:
+      namespace: playground
+      group: ""
+      version: v1
+      resource: services
+      eventTypes: [ ADD, DELETE, UPDATE ]
+      filter:
+        fields:
+        - key: metadata.annotations.autodeploy-gateway-host
+          operation: =
+          value: ".+"
+
+---
+apiVersion: argoproj.io/v1alpha1
+kind: Sensor
+metadata:
+  name: ingress-sn
+  namespace: playground
+spec:
+  eventBusName: jetstream-eb
+  template:
+    serviceAccountName: playground-sa
+  dependencies:
+  - name: svc-ingress
+    eventSourceName: ingress-es
+    eventName: ingress
+    transform:
+      jq: '.operation += if .type == "ADD" then "create" else if .type == "DELETE" then "delete" else "update" end end'
+
+  - name: svc-gateway
+    eventSourceName: gateway-es
+    eventName: gateway
+    transform:
+      jq: '.operation += if .type == "ADD" then "create" else if .type == "DELETE" then "delete" else "update" end end'
+
+  triggers:
+  - parameters:
+    - src:
+        dependencyName: svc-gateway
+        dataKey: operation
+      dest: k8s.operation
+    template:
+      name: gateway
+      conditions: "svc-gateway"
+      k8s:
+        operation: create
+        parameters:
+        - src:
+            dependencyName: svc-gateway
+            dataKey: body.metadata.name
+          dest: metadata.name
+          operation: prepend
+        - src:
+            dependencyName: svc-gateway
+            dataKey: body.metadata.annotations.autodeploy-gateway-host
+          dest: spec.hostnames.0
+        - src:
+            dependencyName: svc-gateway
+            dataKey: body.metadata.name
+          dest: spec.rules.0.backendRefs.0.name
+        - src:
+            dependencyName: svc-gateway
+            dataKey: body.spec.ports.0.port
+            useRawData: true
+          dest: spec.rules.0.backendRefs.0.port
+
+        source:
+          resource:
+            apiVersion: gateway.networking.k8s.io/v1
+            kind: HTTPRoute
+            metadata:
+              name: -httproute
+              namespace: playground
+            spec:
+              parentRefs:
+              - name: playground-gtw
+                sectionName: playground-http
+              hostnames:
+              - __WILL_BE_REPLACED__
+              rules:
+              - matches:
+                - path: 
+                    type: PathPrefix
+                    value: /
+                backendRefs:
+                - name: __WILL_BE_REPLACED__
+                  port: __WILL_BE_REPLACED__
+
+  - parameters:
+    - src:
+        dependencyName: svc-ingress
+        dataKey: operation
+      dest: k8s.operation
+    template:
+      name: ingress
+      conditions: "svc-ingress"
+      k8s:
+        operation: create
+        parameters:
+        - src:
+            dependencyName: svc-ingress
+            dataKey: body.metadata.name
+          dest: metadata.name
+          operation: prepend
+        - src:
+            dependencyName: svc-ingress
+            dataKey: body.metadata.annotations.autodeploy-ingress-class
+          dest: spec.ingressClassName
+        - src:
+            dependencyName: svc-ingress
+            dataKey: body.metadata.annotations.autodeploy-ingress-host
+          dest: spec.rules.0.host
+        - src:
+            dependencyName: svc-ingress
+            dataKey: body.metadata.name
+          dest: spec.rules.0.http.paths.0.backend.service.name
+        - src:
+            dependencyName: svc-ingress
+            dataKey: body.spec.ports.0.port
+            useRawData: true
+          dest: spec.rules.0.http.paths.0.backend.service.port.number
+        source:
+          resource:
+            apiVersion: networking.k8s.io/v1
+            kind: Ingress
+            metadata:
+              name: -ing
+              namespace: playground
+            spec:
+              ingressClassName: __WILL_BE_REPLACED__
+              rules:
+              - host: __WILL_BE_REPLACED__
+                http:
+                  paths:
+                  - path: /
+                    pathType: Prefix
+                    backend:
+                      service:
+                        name: __WILL_BE_REPLACED__
+                        port:
+                          number: __WILL_BE_REPLACED__
+    policy:
+      k8s:
+        labels:
+          events.argoproj.io/trigger: ingress
+        backoff:
+          duration: 5s
+
+  - template:
+      name: logging
+      conditions: "svc-ingress || svc-gateway"
+      log:
+        intervalSeconds: 15
+
