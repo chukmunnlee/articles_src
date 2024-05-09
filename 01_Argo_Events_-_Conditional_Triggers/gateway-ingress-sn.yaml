@@ -1,54 +1,8 @@
 ---
 apiVersion: argoproj.io/v1alpha1
-kind: EventSource
-metadata:
-  name: ingress-es
-  namespace: playground
-spec:
-  eventBusName: jetstream-eb
-  template:
-    serviceAccountName: playground-sa
-  resource:
-    ingress:
-      namespace: playground
-      group: ""
-      version: v1
-      resource: services
-      eventTypes: [ ADD, DELETE, UPDATE ]
-      filter:
-        fields:
-        - key: metadata.annotations.autodeploy-ingress-host
-          operation: =
-          value: ".+"
-
----
-apiVersion: argoproj.io/v1alpha1
-kind: EventSource
-metadata:
-  name: gateway-es
-  namespace: playground
-spec:
-  eventBusName: jetstream-eb
-  template:
-    serviceAccountName: playground-sa
-  resource:
-    gateway:
-      namespace: playground
-      group: ""
-      version: v1
-      resource: services
-      eventTypes: [ ADD, DELETE, UPDATE ]
-      filter:
-        fields:
-        - key: metadata.annotations.autodeploy-gateway-host
-          operation: =
-          value: ".+"
-
----
-apiVersion: argoproj.io/v1alpha1
 kind: Sensor
 metadata:
-  name: ingress-sn
+  name: gateway-ingress-sn
   namespace: playground
 spec:
   eventBusName: jetstream-eb
@@ -56,13 +10,13 @@ spec:
     serviceAccountName: playground-sa
   dependencies:
   - name: svc-ingress
-    eventSourceName: ingress-es
+    eventSourceName: gateway-ingress-es
     eventName: ingress
     transform:
       jq: '.operation += if .type == "ADD" then "create" else if .type == "DELETE" then "delete" else "update" end end'
 
   - name: svc-gateway
-    eventSourceName: gateway-es
+    eventSourceName: gateway-ingress-es
     eventName: gateway
     transform:
       jq: '.operation += if .type == "ADD" then "create" else if .type == "DELETE" then "delete" else "update" end end'
@@ -119,6 +73,13 @@ spec:
                 backendRefs:
                 - name: __WILL_BE_REPLACED__
                   port: __WILL_BE_REPLACED__
+    policy:
+      k8s:
+        labels:
+          events.argoproj.io/sensor: gateway-ingress-sn
+          events.argoproj.io/trigger: gateway
+        backoff:
+          duration: 5s
 
   - parameters:
     - src:
@@ -176,6 +137,7 @@ spec:
     policy:
       k8s:
         labels:
+          events.argoproj.io/sensor: gateway-ingress-sn
           events.argoproj.io/trigger: ingress
         backoff:
           duration: 5s
