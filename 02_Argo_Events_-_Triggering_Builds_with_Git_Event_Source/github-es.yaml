@@ -54,21 +54,24 @@ spec:
     targetPort: 13000
 
 ---
-apiVersion: networking.cfargotunnel.com/v1alpha1
-kind: TunnelBinding
+apiVersion: networking.k8s.io/v1
+kind: Ingress
 metadata:
-  name: github-es-tb
+  name: github-es-ing
   namespace: playground
   labels:
     app: github
-    name: github-es-tb
-
-tunnelRef:
-  kind: Tunnel
-  name: cf-tunnel
-subjects:
-- kind: Service
-  # domain name will be github.your_domain.com
-  name: github
-  spec:
-    target: http://github-es-svc.playground.svc.cluster.local:13000
+    name: github-es-ing
+spec:
+  ingressClassName: nginx
+  rules:
+  - host: github-192.168.39.87.nip.io
+    http:
+      paths:
+      - path: /
+        pathType: Prefix
+        backend:
+          service:
+            name: github-es-svc
+            port:
+              number: 13000
