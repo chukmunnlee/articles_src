@@ -1,0 +1,370 @@
+---
+apiVersion: argoproj.io/v1alpha1
+kind: WorkflowTemplate
+metadata:
+  name: build-container-wftmpl
+  namespace: playground
+
+spec:
+  serviceAccountName: playground-sa
+
+  artifactRepositoryRef:
+    configMap: artifact-repositories
+    key: minio
+
+  artifactGC:
+    serviceAccountName: playground-sa
+    strategy: OnWorkflowCompletion
+
+  arguments:
+    parameters:
+    - name: imageName
+      value: argo-dov-bear
+    - name: revision
+      value: HEAD
+    - name: branch
+      value: master
+    - name: severity
+      #value: HIGH,CRITICAL
+      value: CRITICAL
+    - name: commitMsg
+      value: ""
+    artifacts:
+    - name: dov-src
+      git:
+        repo: https://github.com/chukmunnlee/dov-bear.git
+        depth: 1
+        singleBranch: true
+        revision: "{{ inputs.parameters.revision }}"
+        branch: "{{ inputs.parameters.branch }}"
+    - name: dov-release
+      git:
+        repo: https://github.com/chukmunnlee/dov-bear-release.git
+        depth: 1
+        singleBranch: true
+        branch: master
+
+  entrypoint: main
+
+  templates:
+  - name: main
+    inputs:
+      parameters:
+      - name: imageName
+      - name: revision
+      - name: branch
+      - name: severity
+      - name: sarif-file
+        value: /tmp/report.sarif
+      - name: commitMsg
+        value: ""
+      artifacts:
+      - name: dov-src
+      - name: dov-release
+
+    dag:
+      tasks:
+      - name: scan-repo
+        arguments:
+          parameters:
+          - name: severity
+            value: "{{ inputs.parameters.severity }}"
+          - name: sarif-file
+            value: "{{ inputs.parameters.sarif-file }}"
+          artifacts:
+          - name: dov-src
+            path: /src
+            from: "{{ inputs.artifacts.dov-src }}"
+        template: scan-repo
+        continueOn:
+          failed: true
+      - name: upload-report-on-severity
+        arguments:
+          parameters:
+          - name: sarif-file
+            value: "{{ inputs.parameters.sarif-file }}"
+          - name: branch
+            value: "{{ inputs.parameters.branch }}"
+          artifacts:
+          - name: dov-src
+            path: /src
+            from: "{{ inputs.artifacts.dov-src }}"
+          - name: scan-report
+            path: "{{ inputs.parameters.sarif-file }}"
+            from: "{{ tasks.scan-repo.outputs.artifacts.scan-report }}"
+        template: upload-sarif
+        when: "{{ tasks.scan-repo.exitCode }} == 1"
+        dependencies: [ scan-repo ]
+      - name: should-continue
+        arguments:
+          parameters:
+          - name: exit-code
+            value: "{{ tasks.scan-repo.exitCode }}"
+        template: echo-exit-code
+        dependencies: [ scan-repo ]
+      - name: get-short-hash
+        arguments:
+          parameters:
+          - name: revision
+            value: "{{ inputs.parameters.revision }}"
+          artifacts:
+          - name: dov-src
+            path: /src
+            from: "{{ inputs.artifacts.dov-src }}"
+        template: short-hash
+        dependencies: [ should-continue ]
+      - name: build-image
+        arguments:
+          parameters:
+          - name: imageName
+            value: "{{ inputs.parameters.imageName }}"
+          - name: hash
+            value: "{{ tasks.get-short-hash.outputs.result }}"
+          artifacts:
+          - name: dov-src
+            path: /src
+            from: "{{ inputs.artifacts.dov-src }}"
+        template: build-and-push-image
+        dependencies: [ get-short-hash ]
+      - name: get-sha-digest
+        arguments:
+          artifacts:
+          - name: metadata
+            from: "{{ tasks.build-image.outputs.artifacts.metadata }}"
+        template: get-sha
+        dependencies: [ build-image ]
+      - name: sign-container
+        arguments:
+          parameters:
+          - name: imageName
+            value: "{{ inputs.parameters.imageName }}"
+          - name: imageSha
+            value: "{{ tasks.get-sha-digest.outputs.result }}"
+        template: sign-container
+        dependencies: [ get-sha-digest ]
+      - name: generate-manifest
+        arguments:
+          parameters:
+          - name: imageName
+            value: "{{ inputs.parameters.imageName }}"
+          - name: imageSha
+            value: "{{ tasks.get-sha-digest.outputs.result }}"
+          - name: hash
+            value: "{{ tasks.get-short-hash.outputs.result }}"
+          - name: commitMsg
+            value: "{{ inputs.parameters.commitMsg }}"
+          artifacts:
+          - name: dov-src
+            path: /work/src
+            from: "{{ inputs.artifacts.dov-src }}"
+          - name: dov-release
+            path: /work/release
+            from: "{{ inputs.artifacts.dov-release }}"
+        template: generate-manifest
+        dependencies: [ sign-container ]
+
+  - name: scan-repo
+    inputs:
+      parameters:
+      - name: severity
+        value: "HIGH,CRITICAL"
+      - name: sarif-file
+        value: /tmp/report.sarif
+      artifacts:
+      - name: dov-src
+        path: /src
+    outputs:
+      artifacts:
+      - name: scan-report
+        path: "{{ inputs.parameters.sarif-file }}"
+    container:
+      image: aquasec/trivy:0.50.2
+      imagePullPolicy: IfNotPresent
+      workingDir: /src
+      args:
+      - fs
+      - --quiet
+      - --scanners=config,secret,vuln
+      - -fsarif
+      - "-o{{ inputs.parameters.sarif-file }}"
+      - "-s{{ inputs.parameters.severity }}"
+      - --exit-code=1
+      - src/golang
+
+  - name: upload-sarif
+    inputs:
+      parameters:
+      - name: sarif-file
+        value: /tmp/report.sarif
+      - name: branch
+      artifacts:
+      - name: dov-src
+        path: /src
+      - name: scan-report
+        path: "{{ inputs.parameters.sarif-file }}"
+    container:
+      image: mcr.microsoft.com/cstsectools/codeql-container
+      imagePullPolicy: IfNotPresent
+      command:
+      - codeql
+      - github
+      - upload-results
+      - "--sarif={{ inputs.parameters.sarif-file }}"
+      - "--ref=refs/heads/{{ inputs.parameters.branch }}"
+      - "--checkout-path=/src"
+      env:
+      - name: GITHUB_TOKEN
+        valueFrom:
+          secretKeyRef:
+            name: github-secret
+            key: github-token
+
+  - name: echo-exit-code
+    inputs:
+      parameters:
+      - name: exit-code
+    script:
+      image: busybox
+      imagePullPolicy: IfNotPresent
+      command: [ '/bin/sh' ]
+      source: exit {{ inputs.parameters.exit-code }}
+
+  - name: short-hash
+    inputs:
+      parameters:
+      - name: revision
+      artifacts:
+      - name: dov-src
+        path: /src
+    container:
+      image: bitnami/git
+      imagePullPolicy: IfNotPresent
+      workingDir: /src
+      command:
+      - git
+      - rev-parse
+      - --short
+      - "{{ inputs.parameters.revision }}"
+
+  - name: build-and-push-image
+    inputs:
+      parameters:
+      - name: imageName
+      - name: hash
+      artifacts:
+      - name: dov-src
+        path: /src
+    outputs:
+      artifacts:
+      - name: metadata
+        path: /tmp/metadata.json
+    volumes:
+    - name: docker-cred-vol
+      secret:
+        secretName: docker-secret
+    container:
+      # https://github.com/moby/buildkit/issues/2441
+      #securityContext:
+      #  privileged: true
+      workingDir: /src/src/golang
+      image: moby/buildkit:v0.13.2-rootless
+      imagePullPolicy: IfNotPresent
+      env:
+      - name: BUILDKITD_FLAGS
+        value: --oci-worker-no-process-sandbox
+      - name: DOCKER_CONFIG
+        value: /.docker
+      command:
+      - buildctl-daemonless.sh
+      args:
+      - build
+      - --frontend
+      - dockerfile.v0
+      - --local
+      - context=.
+      - --local
+      - dockerfile=.
+      - --output
+      - "type=image,name=chukmunnlee/{{ inputs.parameters.imageName }}:{{ inputs.parameters.hash }},push=true"
+      - --metadata-file
+      - /tmp/metadata.json
+      volumeMounts:
+      - name: docker-cred-vol
+        mountPath: /.docker
+        readOnly: true
+
+  - name: get-sha
+    inputs:
+      artifacts:
+      - name: metadata
+        path: /tmp/metadata.json
+    script:
+      image: nicolaka/netshoot
+      imagePullPolicy: IfNotPresent
+      command: [ "/bin/sh" ]
+      source: |
+        cat /tmp/metadata.json | jq -r '."containerimage.digest"'
+
+  - name: sign-container
+    inputs:
+      parameters:
+      - name: imageName
+      - name: imageSha
+    volumes:
+    - name: docker-cred-vol
+      secret:
+        secretName: docker-secret
+    container:
+      image: bitnami/cosign:2
+      imagePullPolicy: IfNotPresent
+      command:
+      - cosign 
+      - sign
+      - --yes
+      - --key
+      - k8s://playground/cosign-keys
+      - "chukmunnlee/{{ inputs.parameters.imageName }}@{{ inputs.parameters.imageSha }}"
+      env:
+      - name: DOCKER_CONFIG
+        value: /.docker
+      volumeMounts:
+      - name: docker-cred-vol
+        mountPath: /.docker
+        readOnly: true
+
+  - name: generate-manifest
+    inputs:
+      parameters:
+      - name: imageName
+      - name: imageSha
+      - name: hash
+      - name: commitMsg
+      artifacts:
+      - name: dov-src
+        path: /work/src
+      - name: dov-release
+        path: /work/release
+    script:
+      image: chukmunnlee/kustomize:v5.4.1
+      imagePullPolicy: IfNotPresent
+      command: [ '/bin/sh' ]
+      env:
+      - name: GITHUB_TOKEN
+        valueFrom:
+          secretKeyRef:
+            name: github-secret
+            key: github-token
+      source: |
+        sed -e 's/__NEW_DIGEST__/{{ inputs.parameters.imageSha }}/' \
+          -e 's/__NEW_IMAGE_NAME__/{{ inputs.parameters.imageName }}/' \
+          -e 's/__COMMIT_HASH__/{{ inputs.parameters.hash }}/' \
+          src/manifest/overlays/stage/_kustomization.yaml > src/manifest/overlays/stage/kustomization.yaml
+        cp -r src/manifest release
+        kustomize build -o release/dov-bear.yaml src/manifest/overlays/stage
+        cd release
+        git config --global user.email 'fred@acme.com'
+        git config --global user.name 'fred'
+        git config --global url.https://${GITHUB_TOKEN}@github.com/.insteadOf https://github.com/
+        git add . 
+        git commit -m "Generated from commit {{ inputs.parameters.hash }} on $(date) - {{ inputs.parameters.commitMsg }}"
+        git push origin master

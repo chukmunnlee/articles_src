@@ -1,0 +1,62 @@
+---
+apiVersion: argoproj.io/v1alpha1
+kind: Sensor
+metadata:
+  name: github-sn
+  namespace: playground
+  labels:
+    app: github
+    name: github-sn
+spec:
+  eventBusName: kafka-eb
+  template:
+    metadata:
+      name: github-sn-po
+    serviceAccountName: playground-sa
+  dependencies:
+  - name: github
+    eventSourceName: github-es
+    eventName: dov-bear
+
+  triggers:
+  - template:
+      name: build-container
+      argoWorkflow:
+        operation: submit
+        parameters:
+        - src: 
+            dependencyName: github
+            dataTemplate: '{{ .Input.body.ref | trimPrefix "refs/heads/" }}'
+          # branch
+          dest: spec.arguments.parameters.0.value
+        - src:
+            dependencyName: github
+            dataKey: body.after
+          # revision
+          dest: spec.arguments.parameters.1.value
+        - src:
+            dependencyName: github
+            dataKey: body.head_commit.message
+          # commitMsg
+          dest: spec.arguments.parameters.2.value
+        source:
+          resource:
+            apiVersion: argoproj.io/v1alpha1
+            kind: Workflow
+            metadata:
+              generateName: build-container-
+              namespace: playground
+            spec:
+              serviceAccountName: playground-sa
+              arguments:
+                parameters:
+                - name: branch 
+                - name: revision 
+                - name: commitMsg 
+              workflowTemplateRef:
+                name: build-container-wftmpl
+
+  - template:
+      name: log
+      log: 
+        intervalSeconds: 15

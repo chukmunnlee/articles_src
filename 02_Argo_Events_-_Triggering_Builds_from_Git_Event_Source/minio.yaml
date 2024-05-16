@@ -1,0 +1,165 @@
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: minio
+
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: minio-secret
+  namespace: minio
+data:
+  # root
+  MINIO_ROOT_USER: cm9vdA==
+  # rootroot
+  MINIO_ROOT_PASSWORD: cm9vdHJvb3Q=
+
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: minio-cm
+  namespace: minio
+data:
+  MINIO_DATA_DIR: /opt/data
+  MINIO_CI_CD: "1"
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: minio-hsvc
+  namespace: minio
+  labels:
+    app: minio
+    labels: minio-hsvc
+spec:
+  clusterIP: None
+  selector:
+    app: minio
+    name: minio-po
+  ports:
+    - name: minio-data 
+      port: 9000
+      targetPort: 9000
+    - name: minio-web 
+      port: 9090
+      targetPort: 9090
+
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: minio-sts
+  namespace: minio
+  labels:
+    app: minio
+    name: minio-sts
+spec:
+  replicas: 3
+  serviceName: minio-hsvc
+  selector:
+    matchLabels:
+      app: minio
+      name: minio-po
+  volumeClaimTemplates:
+  - metadata:
+      name: data-vol
+    spec:
+      accessModes: [ ReadWriteOnce ]
+      resources:
+        requests:
+          storage: 1Gi
+      storageClassName: standard
+  template:
+    metadata:
+      name: minio-po
+      labels:
+        app: minio
+        name: minio-po
+    spec:
+      securityContext:
+        fsGroup: 1001
+      volumes:
+      - name: data-vol
+        persistentVolumeClaim:
+          claimName: data-vol
+      containers:
+      - name: minio-container
+        image: bitnami/minio:2024.3.15
+        imagePullPolicy: IfNotPresent
+        args:
+        - minio
+        - server
+        - --address=:9000
+        - --console-address=:9090
+        - http://minio-sts-{0...2}.minio-hsvc.minio.svc.cluster.local
+        envFrom:
+        - secretRef:
+            name: minio-secret
+        - configMapRef:
+            name: minio-cm
+        ports:
+        - name: data-port
+          containerPort: 9000
+        - name: web-port
+          containerPort: 9090
+        volumeMounts:
+        - name: data-vol
+          mountPath: /opt/data
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: minio-svc
+  namespace: minio
+  labels:
+    app: minio-svc
+spec:
+  selector:
+    app: minio
+    name: minio-po
+  type: ClusterIP
+  ports:
+  - name: data-port
+    port: 9000
+    targetPort: 9000
+  - name: web-port
+    port: 9090
+    targetPort: 9090
+
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: minio-ing
+  namespace: minio
+  labels:
+    app: minio
+    name: minio-ing
+spec:
+  rules:
+  - host: data-minio.192.168.39.87.nip.io
+    http:
+      paths:
+      - path: /
+        pathType: Prefix
+        backend:
+          service:
+            name: minio-svc
+            port:
+              number: 9000
+  - host: web-minio.192.168.39.87.nip.io
+    http:
+      paths:
+      - path: /
+        pathType: Prefix
+        backend:
+          service:
+            name: minio-svc
+            port:
+              number: 9090
+

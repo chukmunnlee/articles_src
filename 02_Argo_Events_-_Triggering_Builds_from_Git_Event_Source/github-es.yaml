@@ -1,0 +1,74 @@
+---
+apiVersion: argoproj.io/v1alpha1
+kind: EventSource
+metadata:
+  name: github-es
+  namespace: playground
+  labels:
+    app: github
+    name: github-es
+spec:
+  eventBusName: kafka-eb
+  template:
+    metadata:
+      name: github-es-po
+    serviceAccountName: playground-sa
+  github:
+    dov-bear:
+      repositories:
+      - owner: chukmunnlee
+        names:
+        - https://github.com/chukmunnlee/dov-bear.git
+      webhook:
+        url: https://github.chuklee.com
+        method: POST
+        endpoint: /dov
+        port: "13000"
+      webhookSecret:
+        name: github-secret
+        key: github-webhook-secret
+      contentType: json
+      events:
+      - push
+      active: true
+      insecure: false
+      filter:
+        expression: "(null != body.head_commit) && (indexOf(body.head_commit.message, '#NORUN') == -1) && hasPrefix(body.ref, 'refs/heads/release/')"
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: github-es-svc
+  namespace: playground
+  labels:
+    app: github
+    name: github-es-svc
+spec:
+  type: ClusterIP
+  selector:
+    eventsource-name: github-es
+    owner-name: github-es
+  ports:
+  - port: 13000
+    targetPort: 13000
+
+---
+apiVersion: networking.cfargotunnel.com/v1alpha1
+kind: TunnelBinding
+metadata:
+  name: github-es-tb
+  namespace: playground
+  labels:
+    app: github
+    name: github-es-tb
+
+tunnelRef:
+  kind: Tunnel
+  name: cf-tunnel
+subjects:
+- kind: Service
+  # domain name will be github.your_domain.com
+  name: github
+  spec:
+    target: http://github-es-svc.playground.svc.cluster.local:13000

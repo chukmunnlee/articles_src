@@ -1,0 +1,73 @@
+---
+## the following are for the artifact repository
+apiVersion: v1
+kind: Secret
+metadata:
+  name: minio-keys-secret
+  namespace: playground
+  labels:
+    name: minio-keys-secret
+    app: minio
+type: Opaque
+data:
+  accessKey: __ACCESS_KEY__
+  secretKey: __SECRET_KEY__
+
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: artifact-repositories
+  namespace: playground
+  annotations:
+    workflows.argoproj.io/default-artifact-repository: minio
+data:
+  minio: |
+    archiveLogs: false
+    s3:
+      endpoint: minio-svc.minio.svc.cluster.local:9000
+      bucket: acme
+      insecure: true
+      accessKeySecret:
+        name: minio-keys-secret
+        key: accessKey
+      secretKeySecret:
+        name: minio-keys-secret
+        key: secretKey
+
+---
+## For pushing to Github
+apiVersion: v1
+kind: Secret
+metadata:
+  name: github-secret
+  namespace: playground
+data:
+  github-token: __GITHUB_TOKEN__
+  github-webhook-secret: __GITHUB_WEBHOOK_SECRET__
+
+---
+## Keys for signing the image
+apiVersion: v1
+kind: Secret
+metadata:
+  name: cosign-keys
+  namespace: playground
+type: Opaque
+immutable: true
+data:
+  cosign.pub: __COSIGN_PUB_KEY__
+  cosign.key: __COSIGN_PRIV_KEY__
+  cosign.password: __COSIGN_KEY_PASSWORD__
+
+---
+# Credentials for pushing to docker hub
+apiVersion: v1
+kind: Secret
+metadata:
+  name: docker-secret
+  namespace: playground
+type: Opaque
+data:
+  config.json: __DOCKER_CREDENTIAL__
+
