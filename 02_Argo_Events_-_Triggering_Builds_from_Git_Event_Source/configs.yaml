@@ -71,3 +71,14 @@ type: Opaque
 data:
   config.json: __DOCKER_CREDENTIAL__
 
+---
+# Keys for Cloudflare tunnel
+apiVersion: v1
+kind: Secret
+metadata:
+  name: cloudflare-secrets
+  namespace: playground
+data:
+  CLOUDFLARE_API_KEY: __CF_API_KEY__
+  CLOUDFLARE_API_TOKEN: __CF_API_TOKEN__
+
