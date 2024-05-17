@@ -65,7 +65,7 @@ metadata:
 spec:
   ingressClassName: nginx
   rules:
-  - host: github-192.168.39.87.nip.io
+  - host: __WEBHOOK_ENDPOINT__
     http:
       paths:
       - path: /
