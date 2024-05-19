@@ -20,7 +20,7 @@ spec:
         names:
         - https://github.com/chukmunnlee/dov-bear.git
       webhook:
-        url: https://github.chuklee.com
+        url: https://github.playground.com
         method: POST
         endpoint: /dov
         port: "13000"
@@ -65,7 +65,7 @@ metadata:
 spec:
   ingressClassName: nginx
   rules:
-  - host: __WEBHOOK_ENDPOINT__
+  - host: github.playground.com
     http:
       paths:
       - path: /
