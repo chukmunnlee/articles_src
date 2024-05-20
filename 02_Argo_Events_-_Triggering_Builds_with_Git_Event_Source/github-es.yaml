@@ -68,7 +68,7 @@ spec:
   - host: github.playground.com
     http:
       paths:
-      - path: /
+      - path: /dov
         pathType: Prefix
         backend:
           service:
