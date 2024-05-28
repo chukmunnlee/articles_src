@@ -13,6 +13,7 @@ spec:
     domain: __DOMAIN__
     secret: cloudflare-secrets
     accountId: __CF_ACCOUNT_ID__
+  image: cloudflare/cloudflared:2024.5.0
 
 ---
 apiVersion: networking.cfargotunnel.com/v1alpha1
@@ -29,7 +30,9 @@ tunnelRef:
   name: cf-tunnel
 subjects:
 - kind: Service
-  # domain name will be github.your_domain.com
-  name: github
+  name: github-es-svc
   spec:
     target: http://github-es-svc.playground.svc.cluster.local:13000
+    # webhook domain name configured in Github
+    fqdn: __GITHUB_WEBHOOK__
+    protocol: https
