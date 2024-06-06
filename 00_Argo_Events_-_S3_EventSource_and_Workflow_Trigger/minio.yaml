@@ -76,10 +76,6 @@ spec:
     spec:
       securityContext:
         fsGroup: 1001
-      volumes:
-      - name: data-vol
-        persistentVolumeClaim:
-          claimName: data-vol
       containers:
       - name: minio-container
         image: bitnami/minio:2024.3.15
