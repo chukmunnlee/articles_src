@@ -1,5 +1,11 @@
 ---
 apiVersion: v1
+kind: Namespace
+metadata:
+  name: playground
+
+---
+apiVersion: v1
 kind: Secret
 metadata:
   name: minio-secret
@@ -17,8 +23,11 @@ metadata:
   name: minio-cm
   namespace: playground
 data:
-  MINIO_DATA_DIR: /opt/data
-  MINIO_CI_CD: "1"
+  MINIO_DATA_DIR: /data
+  MINIO_DISTRIBUTED_MODE_ENABLED: "yes"
+  MINIO_DISTRIBUTED_NODES: minio-sts-{0...2}.minio-hsvc.playground.svc.cluster.local/data
+  MINIO_API_PORT_NUMBER: "9000"
+  MINIO_CONSOLE_PORT_NUMBER: "9090"
 
 ---
 apiVersion: v1
@@ -62,7 +71,7 @@ spec:
   - metadata:
       name: data-vol
     spec:
-      accessModes: [ ReadWriteOnce ]
+      accessModes: [ ReadWriteOncePod ]
       resources:
         requests:
           storage: 1Gi
@@ -74,18 +83,10 @@ spec:
         app: minio
         name: minio-po
     spec:
-      securityContext:
-        fsGroup: 1001
       containers:
       - name: minio-container
-        image: bitnami/minio:2024.3.15
+        image: bitnami/minio:2024
         imagePullPolicy: IfNotPresent
-        args:
-        - minio
-        - server
-        - --address=:9000
-        - --console-address=:9090
-        - http://minio-sts-{0...2}.minio-hsvc.playground.svc.cluster.local
         envFrom:
         - secretRef:
             name: minio-secret
@@ -98,7 +99,7 @@ spec:
           containerPort: 9090
         volumeMounts:
         - name: data-vol
-          mountPath: /opt/data
+          mountPath: /data
 
 ---
 apiVersion: v1
@@ -131,8 +132,9 @@ metadata:
     app: minio
     name: minio-ing
 spec:
+  ingressClassName: nginx
   rules:
-  - host: __MINIO_DATA_ENDPOINT__
+  - host: data-192.168.39.241.nip.io
     http:
       paths:
       - path: /
@@ -142,7 +144,7 @@ spec:
             name: minio-svc
             port:
               number: 9000
-  - host: __MINIO_WEB_ENDPOINT__
+  - host: web-192.168.39.241.nip.io
     http:
       paths:
       - path: /
@@ -152,4 +154,3 @@ spec:
             name: minio-svc
             port:
               number: 9090
-
