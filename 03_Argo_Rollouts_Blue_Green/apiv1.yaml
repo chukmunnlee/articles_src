@@ -1,0 +1,95 @@
+---
+# The main service for the Blue deployment
+apiVersion: v1
+kind: Service
+metadata:
+  name: api-svc
+  namespace: api-ns
+  labels:
+    name: api-svc
+    app: api
+spec:
+  type: ClusterIP
+  selector:
+    name: api-po
+    app: api
+  ports:
+  - port: 3000
+    targetPort: 3000
+
+---
+# The preview service for the Green deployment
+apiVersion: v1
+kind: Service
+metadata:
+  name: preview-api-svc
+  namespace: api-ns
+  labels:
+    name: preview-api-svc
+    app: api
+spec:
+  type: ClusterIP
+  selector:
+    name: api-po
+    app: api
+  ports:
+  - port: 3000
+    targetPort: 3000
+
+---
+# Ingress for accessing the main service
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: api-ing
+  namespace: api-ns
+  labels:
+    name: api-ing
+    app: api
+spec:
+  ingressClassName: nginx
+  rules:
+  - host: api.192.168.39.223.nip.io
+    http:
+      paths:
+      - path: /
+        pathType: Prefix
+        backend:
+          service:
+            name: api-svc
+            port:
+              number: 3000
+---
+apiVersion: argoproj.io/v1alpha1
+kind: Rollout
+metadata:
+  name: api-ro
+  namespace: api-ns
+  labels:
+    name: api-ro
+    app: api
+spec:
+  replicas: 3
+  selector:
+    matchLabels:
+      name: api-po
+      app: api
+  strategy:
+    blueGreen:
+      activeService: api-svc
+      previewService: preview-api-svc
+      autoPromotionEnabled: false
+  template:
+    metadata:
+      labels:
+        name: api-po
+        app: api
+        version: v1
+    spec:
+      containers:
+      - name: api-container
+        image: chukmunnlee/fake-api:v1
+        imagePullPolicy: IfNotPresent
+        ports:
+        - containerPort: 3000
+
