@@ -1,0 +1,24 @@
+---
+apiVersion: networking.istio.io/v1
+kind: VirtualService
+metadata:
+  name: api-percentage
+  namespace: api
+  labels:
+    app: api
+    name: api-vs
+spec:
+  gateways:
+  - api-gw
+  hosts:
+  - percentage.192.168.39.155.nip.io
+  http:
+  - name: api-percentage
+    route:
+    - destination:
+        host: apiv1-svc
+      weight: 75
+    - destination:
+        host: apiv2-svc
+      weight: 25
+

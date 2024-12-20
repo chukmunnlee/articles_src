@@ -1,0 +1,24 @@
+---
+apiVersion: networking.istio.io/v1
+kind: VirtualService
+metadata:
+  name: api-mirror
+  namespace: api
+  labels:
+    app: api
+    name: api-vs
+spec:
+  gateways:
+  - api-gw
+  hosts:
+  - mirror.192.168.39.155.nip.io
+  http:
+  - name: api-mirror
+    route:
+    - destination:
+        host: apiv1-svc
+      weight: 100
+    mirror:
+      host: apiv2-svc
+    mirrorPercentage: 
+      value: 100

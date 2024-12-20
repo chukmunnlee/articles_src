@@ -1,0 +1,27 @@
+---
+apiVersion: networking.istio.io/v1
+kind: VirtualService
+metadata:
+  name: api-attribute
+  namespace: api
+  labels:
+    app: api
+    name: api-vs
+spec:
+  gateways:
+  - api-gw
+  hosts:
+  - attribute.192.168.39.155.nip.io
+  http:
+  - name: api-attribute-v2
+    match:
+    - headers:
+        x-version:
+          prefix: v2
+    route:
+    - destination:
+        host: apiv2-svc
+  - name: api-attribute
+    route:
+    - destination:
+        host: apiv1-svc
