@@ -1,0 +1,119 @@
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: api
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: apiv1-svc
+  labels:
+    name: apiv1-svc
+    app: api
+  namespace: api
+spec:
+  selector:
+    name: apiv1-po
+    app: api
+  ports:
+  - port: 3000
+    targetPort: 3000
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: apiv2-svc
+  labels:
+    name: apiv2-svc
+    app: api
+  namespace: api
+spec:
+  selector:
+    name: apiv2-po
+    app: api
+  ports:
+  - port: 3000
+    targetPort: 3000
+
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: apiv1-deploy
+  labels:
+    name: apiv1-deploy
+    app: api
+  namespace: api
+spec:
+  replicas: 3
+  selector:
+    matchLabels:
+      name: apiv1-po
+      app: api
+  template:
+    metadata:
+      name: apiv1-po
+      labels:
+        name: apiv1-po
+        app: api
+    spec:
+      containers:
+      - name: apiv1-container
+        image: chukmunnlee/fake-api:v1
+        imagePullPolicy: IfNotPresent
+        ports:
+        - containerPort: 3000
+
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: apiv2-deploy
+  labels:
+    name: apiv2-deploy
+    app: api
+  namespace: api
+spec:
+  replicas: 3
+  selector:
+    matchLabels:
+      name: apiv2-po
+      app: api
+  template:
+    metadata:
+      name: apiv2-po
+      labels:
+        name: apiv2-po
+        app: api
+    spec:
+      containers:
+      - name: apiv2-container
+        image: chukmunnlee/fake-api:v2
+        imagePullPolicy: IfNotPresent
+        ports:
+        - containerPort: 3000
+
+---
+apiVersion: networking.istio.io/v1
+kind: Gateway
+metadata:
+  name: api-gw
+  namespace: api
+  labels:
+    app: api
+    name: api-gw
+spec:
+  selector:
+    app: istio-ingressgateway
+  servers:
+  - port:
+      name: http
+      number: 80
+      protocol: HTTP
+    hosts:
+    - "*.192.168.39.155.nip.io"
+    tls:
+      httpsRedirect: false

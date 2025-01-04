@@ -1,0 +1,24 @@
+---
+apiVersion: networking.istio.io/v1
+kind: VirtualService
+metadata:
+  name: api-vs
+  namespace: api
+spec:
+  gateways:
+  - api-gw
+  hosts:
+  - api.192.168.39.155.nip.io
+  http:
+  - name: api-svc
+    route:
+    - destination:
+        host: api-svc.api.svc.cluster.local
+        port:
+          number: 3000
+      weight: 100
+    - destination:
+        host: canary-api-svc.api.svc.cluster.local
+        port:
+          number: 3000
+      weight: 0
