@@ -1,0 +1,26 @@
+# enable dashboard
+ports:
+  traefik:
+    expose:
+      default: true
+ingressRoute:
+  dashboard:
+    enabled: true
+
+# enable access logging
+logs:
+  access:
+    enabled: true
+
+providers:
+  kubernetesIngress:
+    enabled: true
+  # enable Gateway
+  kubernetesGateway:
+   enabled: true
+
+gateway:
+  listeners:
+    web:
+      namespacePolicy: All
+

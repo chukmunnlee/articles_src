@@ -1,0 +1,41 @@
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: canary-api-svc
+  namespace: api
+spec:
+  type: ClusterIP
+  selector:
+    app: api
+    name: apiv2-po
+  ports:
+  - port: 3000
+    targetPort: 3000
+
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: apiv2-deploy
+  namespace: api
+spec:
+  replicas: 4
+  selector:
+    matchLabels:
+      app: api
+      name: apiv2-po
+
+  template:
+    metadata:
+      labels:
+        app: api
+        name: apiv2-po
+    spec:
+      containers:
+      - name: app-container
+        image: chukmunnlee/fake-api:v2
+        imagePullPolicy: IfNotPresent
+        ports:
+        - containerPort: 3000
+

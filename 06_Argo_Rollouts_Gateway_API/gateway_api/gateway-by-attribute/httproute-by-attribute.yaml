@@ -1,0 +1,74 @@
+---
+apiVersion: traefik.io/v1alpha1
+kind: Middleware
+metadata:
+  name: ratelimit-10rps
+  namespace: api
+spec:
+  rateLimit:
+    average: 10
+    period: 1
+
+---
+apiVersion: gateway.networking.k8s.io/v1
+kind: HTTPRoute
+metadata:
+  name: api-httproute
+  namespace: api
+spec:
+  parentRefs:
+  - name: traefik-gateway
+    namespace: traefik
+    sectionName: web
+  hostnames:
+  - api-192.168.39.200.nip.io
+  rules:
+  - matches:
+    - path:
+        value: /api/v1
+        type: PathPrefix
+    backendRefs:
+    - name: api-svc
+      port: 3000
+    filters:
+    - type: URLRewrite
+      urlRewrite:
+        path:
+          type: ReplacePrefixMatch
+          replacePrefixMatch: /api
+    - type: ResponseHeaderModifier
+      responseHeaderModifier:
+        add:
+        - name: Access-Control-Allow-Origin
+          value: "*"
+        remove:
+        - X-Powered-By
+    - type: ExtensionRef
+      extensionRef:
+        group: traefik.io
+        kind: Middleware
+        name: ratelimit-5rps
+  - matches:
+    - path:
+        value: /api/v1
+        type: PathPrefix
+      headers:
+      - type: Exact
+        name: X-Version
+        value: v2
+    backendRefs:
+    - name: canary-api-svc
+      port: 3000
+    filters:
+    - type: URLRewrite
+      urlRewrite:
+        path:
+          type: ReplacePrefixMatch
+          replacePrefixMatch: /api
+    - type: ResponseHeaderModifier
+      responseHeaderModifier:
+        add:
+        - name: Access-Control-Allow-Origin
+          value: "*"
+        remove:
+        - X-Powered-By

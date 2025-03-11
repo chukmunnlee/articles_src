@@ -1,0 +1,43 @@
+---
+apiVersion: argoproj.io/v1alpha1
+kind: Rollout
+metadata:
+  name: api-ro
+  namespace: api
+  labels:
+    app: api
+    name: api-deploy
+spec:
+  replicas: 4
+  selector:
+    matchLabels:
+      app: api
+      name: api-po
+  strategy:
+    canary:
+      stableService: api-svc
+      canaryService: canary-api-svc
+      maxSurge: 25%
+      maxUnavailable: 0
+      steps:
+      - setCanaryScale:
+          weight: 25
+      - setWeight: 25
+      - pause: {}
+      trafficRouting:
+        plugins:
+          argoproj-labs/gatewayAPI:
+            httpRoute: api-httproute
+            namespace: api
+  template:
+    metadata:
+      labels:
+        app: api
+        name: api-po
+    spec:
+      containers:
+      - name: api-container
+        image: chukmunnlee/fake-api:v1
+        imagePullPolicy: IfNotPresent
+        ports:
+        - containerPort: 3000
