@@ -1,0 +1,67 @@
+---
+apiVersion: argoproj.io/v1alpha1
+kind: Rollout
+metadata:
+  name: api-ro
+  namespace: api
+spec:
+  replicas: 4
+  selector:
+    matchLabels:
+      app: api
+      name: api-po
+  strategy:
+    canary:
+      stableService: api-svc
+      canaryService: canary-api-svc
+      canaryMetadata:
+        labels:
+          role: canary
+      stableMetadata:
+        labels:
+          role: stable
+      maxSurge: 25%
+      maxUnavailable: 1
+      steps:
+      - setCanaryScale:
+          weight: 25
+      - setWeight: 1
+      - setHeaderRoute:
+          name: api-httproute-canary
+          match:
+          - headerName: X-Version
+            headerValue:
+              exact: v2
+      - pause: { duration: 30s }
+      - analysis:
+          templates: 
+          - templateName: web-analysis 
+          args:
+          - name: url
+            value: "http://api-192.168.39.200.nip.io/api/data"
+          - name: header
+            value: "X-Version"
+          - name: value
+            value: "v2"
+
+      trafficRouting:
+        managedRoutes:
+        - name: api-httproute-canary
+        plugins:
+          argoproj-labs/gatewayAPI:
+            httpRoute: api-httproute
+            useHeaderRoutes: true
+            namespace: api
+  template:
+    metadata:
+      labels:
+        app: api
+        name: api-po
+    spec:
+      containers:
+      - name: api-container
+        image: chukmunnlee/fake-api:v1
+        imagePullPolicy: Always
+        ports:
+        - name: api-port
+          containerPort: 3000

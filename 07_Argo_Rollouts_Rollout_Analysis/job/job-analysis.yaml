@@ -1,0 +1,36 @@
+---
+apiVersion: argoproj.io/v1alpha1
+kind: AnalysisTemplate
+metadata:
+  name: curl-header
+  namespace: api
+spec:
+  args:
+  - name: predicate
+  - name: url
+  - name: failureLimit
+    value: "2"
+  - name: count
+    value: "3"
+  - name: interval
+    value: 10s
+  metrics:
+  - name: success
+    count: "{{ args.count }}"
+    failureLimit: "{{ args.failureLimit }}"
+    interval: "{{ args.interval }}"
+    provider:
+      job:
+        spec:
+          backoffLimit: 2
+          template:
+            spec:
+              restartPolicy: Never
+              containers:
+              - name: netshoot
+                image: nicolaka/netshoot
+                imagePullPolicy: IfNotPresent
+                command:
+                - /bin/sh
+                - -c
+                - "curl -H {{ args.predicate }} {{ args.url }} || exit 1"
