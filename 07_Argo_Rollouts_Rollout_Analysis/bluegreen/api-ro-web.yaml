@@ -1,0 +1,41 @@
+---
+apiVersion: argoproj.io/v1alpha1
+kind: Rollout
+metadata:
+  name: api-ro
+  namespace: api
+  labels:
+    app: api
+    name: api-ro
+spec:
+  replicas: 4
+  selector:
+    matchLabels:
+      app: api
+      name: api-po
+  strategy:
+    blueGreen:
+      activeService: api-svc
+      previewService: preview-api-svc
+      previewReplicaCount: 1
+      autoPromotionEnabled: true
+      prePromotionAnalysis:
+        args:
+        - name: url
+          value: 'http://preview-api-svc.api.svc.cluster.local:3000/api/data'
+        - name: value
+          value: 'v2'
+        templates:
+        - templateName: web-analysis
+  template:
+    metadata:
+      labels:
+        app: api
+        name: api-po
+    spec:
+      containers:
+      - name: api-container
+        image: chukmunnlee/fake-api:v1
+        imagePullPolicy: IfNotPresent
+        ports:
+        - containerPort: 3000

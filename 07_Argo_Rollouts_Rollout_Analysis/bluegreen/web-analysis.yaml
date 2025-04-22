@@ -7,7 +7,6 @@ metadata:
 spec:
   args:
   - name: url
-  - name: header
   - name: value
   metrics:
   - name: success
@@ -15,9 +14,6 @@ spec:
     provider:
       web:
         url: "{{ args.url }}"
-        headers:
-        - key: "{{ args.header }}"
-          value: " {{ args.value }}"
         jsonPath: "{$.version}"
         timeoutSeconds: 5
 

@@ -14,12 +14,6 @@ spec:
     canary:
       stableService: api-svc
       canaryService: canary-api-svc
-      canaryMetadata:
-        labels:
-          role: canary
-      stableMetadata:
-        labels:
-          role: stable
       maxSurge: 25%
       maxUnavailable: 1
       steps:
@@ -27,26 +21,38 @@ spec:
           weight: 25
       - setWeight: 1
       - setHeaderRoute:
-          name: api-httproute-canary
+          name: canary
           match:
           - headerName: X-Version
             headerValue:
-              exact: v2
+              exact: 'v2'
       - pause: { duration: 30s }
       - analysis:
-          templates: 
-          - templateName: web-analysis 
+          templates:
+          - templateName: availability-analysis
           args:
-          - name: url
+          - name: url 
             value: "http://api-192.168.39.200.nip.io/api/data"
-          - name: header
+          - name: canaryHeader
             value: "X-Version"
-          - name: value
+          - name: canaryValue
             value: "v2"
+          - name: duration
+            value: 6m
+      - analysis:
+          templates:
+          - templateName: request-latency-analysis
+          args:
+          - name: jobName 
+            value: api
+          - name: serviceName
+            value: "canary-api-svc"
+          - name: latency
+            value: "5"
 
       trafficRouting:
         managedRoutes:
-        - name: api-httproute-canary
+        - name: canary
         plugins:
           argoproj-labs/gatewayAPI:
             httpRoute: api-httproute
@@ -60,8 +66,18 @@ spec:
     spec:
       containers:
       - name: api-container
-        image: chukmunnlee/fake-api:v1
+        image: chukmunnlee/fake-api:v1-otel
         imagePullPolicy: Always
+        livenessProbe:
+          initialDelaySeconds: 10
+          periodSeconds: 60
+          failureThreshold: 3
+          successThreshold: 1
+          httpGet:
+            port: 3000
+            path: /healthz
         ports:
         - name: api-port
           containerPort: 3000
+        - name: metrics
+          containerPort: 9464

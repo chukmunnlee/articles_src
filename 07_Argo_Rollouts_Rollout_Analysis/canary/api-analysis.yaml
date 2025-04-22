@@ -1,0 +1,124 @@
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: api-cm
+  namespace: api
+  labels:
+    app: api
+    name: api-cm
+data:
+  gen-load.sh: |
+    #!/bin/sh
+    URL="${1:-http://localhost:3000/api/data}"
+    CANARY_HEADER="${2:-X-Version}"
+    CANARY_VALUE="${3:-canary}"
+    DUR="${4:-30s}"
+    EXP_AVAIL="${5:-99}"
+
+    echo "URL=${URL}\nHEADER=${CANARY_HEADER}=${CANARY_VALUE}\nDURATION=${DUR}\nEXPECTED_AVAIL=${EXP_AVAIL}"
+    echo "+++ Executing siege -c2 --delay=5 --time=${DUR} -H '${CANARY_HEADER}: ${CANARY_VALUE}' ${URL} | jq '.availability'"
+
+    AVAIL=$(siege -c2 --delay=5 --time=${DUR} -H "${CANARY_HEADER}: ${CANARY_VALUE}" ${URL} | jq '.availability')
+    echo "AVAILABILITY = ${AVAIL}"
+    IFS="."
+    set $AVAIL
+    IFS=" "
+    if [ "$1" -ge "${EXP_AVAIL}" ]; then
+      exit 0
+    else
+      exit 1
+    fi
+
+---
+apiVersion: argoproj.io/v1alpha1
+kind: AnalysisTemplate
+metadata:
+  name: availability-analysis
+  namespace: api
+  labels:
+    app: api
+    name: availability-analysis
+spec:
+  args:
+  - name: url
+  - name: canaryHeader
+    value: X-Version
+  - name: canaryValue
+    value: canary
+  - name: duration
+    value: 5m
+  - name: expectedAvailabiliy
+    value: "99"
+  metrics:
+  - name: availability
+    provider:
+      job:
+        metadata:
+          labels:
+            analysis: availability
+        spec:
+          backoffLimit: 5
+          template:
+            spec:
+              volumes:
+              - name: scripts
+                configMap:
+                  name: api-cm
+              containers:
+              - name: siege-container
+                image: chukmunnlee/siege:debian-siege-4.1.7
+                imagePullPolicy: IfNotPresent
+                command:
+                - /bin/sh
+                - /opt/scripts/gen-load.sh
+                - "{{ args.url }}"
+                - "{{ args.canaryHeader }}"
+                - "{{ args.canaryValue }}"
+                - "{{ args.duration }}"
+                - "{{ args.expectedAvailabiliy }}"
+                volumeMounts:
+                - name: scripts
+                  mountPath: /opt/scripts
+                  readOnly: true
+              restartPolicy: Never
+
+---
+apiVersion: argoproj.io/v1alpha1
+kind: AnalysisTemplate
+metadata:
+  name: request-latency-analysis
+  namespace: api
+  labels:
+    app: api
+    name: request-latency-analysis
+spec:
+  args:
+  - name: jobName
+  - name: serviceName
+  - name: duration
+    value: 5m
+  - name: percentile
+    value: ".99"
+  - name: latency
+    value: "2.5"
+
+  metrics:
+  - name: request-duration-precentile
+    interval: 30s
+    count: 1
+    successCondition: result[0] <= {{ args.latency }}
+    failureLimit: 1
+    provider:
+      prometheus:
+        address: http://prometheus-operated.monitoring.svc.cluster.local:9090
+        query: |
+          histogram_quantile({{ args.percentile }}, 
+              sum by(le) (
+                rate(
+                  request_duration_ms_bucket{job="{{ args.jobName }}", 
+                    service="{{ args.serviceName }}"
+                  }[{{ args.duration }}]
+                )
+              )
+          ) / 1000
