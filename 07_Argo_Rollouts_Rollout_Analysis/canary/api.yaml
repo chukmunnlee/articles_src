@@ -52,6 +52,8 @@ kind: HTTPRoute
 metadata:
   name: api-httproute
   namespace: api
+  labels:
+    app: api
 spec:
   parentRefs:
   - name: traefik-gateway
@@ -69,3 +71,21 @@ spec:
         port: 3000
       - name: canary-api-svc
         port: 3000
+
+---
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata: 
+  name: api-smon
+  namespace: api
+  labels:
+    release: prometheus
+spec:
+  jobLabel: app
+  selector:
+    matchLabels:
+      app: api
+  endpoints:
+  - port: metrics
+    path: /metrics
+    interval: 30s
