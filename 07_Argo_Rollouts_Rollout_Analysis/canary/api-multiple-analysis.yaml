@@ -1,0 +1,80 @@
+---
+apiVersion: argoproj.io/v1alpha1
+kind: AnalysisTemplate
+metadata:
+  name: availability-latency-analysis
+  namespace: api
+  labels:
+    app: api
+    name: availability-latency-analysis
+spec:
+  args:
+  - name: url
+  - name: canaryHeader
+    value: X-Version
+  - name: canaryValue
+    value: canary
+  - name: duration
+    value: 5m
+  - name: expectedAvailabiliy
+    value: "99"
+
+  - name: jobName
+  - name: serviceName
+  - name: percentile
+    value: ".99"
+  - name: latency
+    value: "2.5"
+  metrics:
+  - name: availability
+    provider:
+      job:
+        metadata:
+          labels:
+            analysis: availability
+        spec:
+          backoffLimit: 5
+          template:
+            spec:
+              volumes:
+              - name: scripts
+                configMap:
+                  name: api-cm
+              containers:
+              - name: siege-container
+                image: chukmunnlee/siege:debian-siege-4.1.7
+                imagePullPolicy: IfNotPresent
+                command:
+                - /bin/sh
+                - /opt/scripts/gen-load.sh
+                - "{{ args.url }}"
+                - "{{ args.canaryHeader }}"
+                - "{{ args.canaryValue }}"
+                - "{{ args.duration }}"
+                - "{{ args.expectedAvailabiliy }}"
+                volumeMounts:
+                - name: scripts
+                  mountPath: /opt/scripts
+                  readOnly: true
+              restartPolicy: Never
+
+  - name: request-duration-precentile
+    initialDelay: "{{ args.duration }}"
+    interval: 30s
+    count: 1
+    successCondition: result[0] <= {{ args.latency }}
+    failureLimit: 1
+    provider:
+      prometheus:
+        address: http://prometheus-operated.monitoring.svc.cluster.local:9090
+        query: |
+          histogram_quantile({{ args.percentile }}, 
+              sum by(le) (
+                rate(
+                  request_duration_ms_bucket{job="{{ args.jobName }}", 
+                    service="{{ args.serviceName }}"
+                  }[{{ args.duration }}]
+                )
+              )
+          ) / 1000
+
