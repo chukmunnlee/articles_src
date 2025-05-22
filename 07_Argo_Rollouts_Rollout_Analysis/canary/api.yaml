@@ -85,7 +85,6 @@ spec:
   jobLabel: app
   selector:
     matchLabels:
-      app: api
       scrape: "true"
   endpoints:
   - port: metrics
