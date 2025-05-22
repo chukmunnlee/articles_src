@@ -33,6 +33,7 @@ metadata:
   namespace: api
   labels:
     app: api
+    scrape: "true"
 spec:
   type: ClusterIP
   selector:
@@ -85,6 +86,7 @@ spec:
   selector:
     matchLabels:
       app: api
+      scrape: "true"
   endpoints:
   - port: metrics
     path: /metrics
