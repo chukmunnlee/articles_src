@@ -1,0 +1,69 @@
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: argo-rollouts-notification-configmap
+  namespace: argo-rollouts
+data:
+  # Configure the service
+  service.slack.ops: |
+    token: $slack-token
+    channels: [ general ]
+
+  service.webhook.ops: |
+    url: $url-endpoint
+    headers:
+    - name: Content-Type
+      value: application/json
+    - name: Authorization
+      value: Bearer $url-token
+    insecureSkipVerify: true
+    
+  # Configure the templates
+  template.rollout-completed: |
+    message: Rollout {{.rollout.metadata.name}} has been completed.
+    webhook:
+      ops:
+        method: POST
+        path: /rollout
+        body: |
+          {
+            "title": "{{.rollout.metadata.name}}",
+            "strategy": "{{if .rollout.spec.strategy.blueGreen}}BlueGreen{{end}}{{if .rollout.spec.strategy.canary}}Canary{{end}}",
+            "containers": [
+              {{range $index, $c := .rollout.spec.template.spec.containers}}
+                {{if $index}},{{end}}
+                {
+                  "name": "{{$c.name}}",
+                  "image": "{{$c.image}}"
+                }
+              {{end}}
+            ]
+          }
+    slack:
+      ops:
+        attachments: |
+            [{
+              "title": "{{ .rollout.metadata.name}}",
+              "color": "#ECB22E",
+              "fields": [
+              {
+                "title": "Strategy",
+                "value": "{{if .rollout.spec.strategy.blueGreen}}BlueGreen{{end}}{{if .rollout.spec.strategy.canary}}Canary{{end}}",
+                "short": true
+              }
+              {{range $index, $c := .rollout.spec.template.spec.containers}}
+                {{if not $index}},{{end}}
+                {{if $index}},{{end}}
+                {
+                  "title": "{{$c.name}}",
+                  "value": "{{$c.image}}",
+                  "short": true
+                }
+              {{end}}
+              ]
+            }]
+
+  # Configure the templates
+  trigger.on-rollout-completed: |
+    - send: [rollout-completed]
